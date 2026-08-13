@@ -108,7 +108,6 @@ lazy val planHttp =
       libraryDependencies ++= Seq(
         "org.http4s" %% "http4s-dsl" % "0.23.30",
         "org.http4s" %% "http4s-ember-server" % "0.23.30",
-        "org.http4s" %% "http4s-ember-client" % "0.23.30" % Test,
         "org.scalameta" %% "munit" % "0.7.29" % Test,
         "org.hamcrest" % "hamcrest" % "2.2" % Test,
       ),

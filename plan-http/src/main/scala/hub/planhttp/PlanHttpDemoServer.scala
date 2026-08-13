@@ -39,7 +39,7 @@ object PlanHttpDemoServer extends IOApp:
    * @param version plan-http version advertised by `/api/v1/meta`
    */
   def serve(host: String, port: Int, version: String): Resource[IO, Server] =
-    val view = schoolDayView()
+    val view = schoolDayReadView()
     val routes = PlanHttpRead.routes(IO.pure(view), version)
     EmberServerBuilder
       .default[IO]
@@ -48,7 +48,8 @@ object PlanHttpDemoServer extends IOApp:
       .withHttpApp(routes.orNotFound)
       .build
 
-  private def schoolDayView(): PlanHttpReadView =
+  /** Frozen Monday composite plan used by the demo and its suite. */
+  def schoolDayReadView(): PlanHttpReadView =
     val monday = OperationId.unsafe("7a/monday/1")
     val algebra = OperationId.unsafe("7a/algebra/1")
     val history = OperationId.unsafe("7a/history/1")
