@@ -42,18 +42,29 @@ lazy val commonSettings = Seq(
 
 lazy val githubOwner = "yarkivaev"
 lazy val githubRepo = "operations-hub"
+lazy val gitlabMavenHost = "gitlab.scada-cicd.svc.cluster.local"
 
 lazy val publishSettings = Seq(
-  publishTo := Some(
-    "GitHub Package Registry" at s"https://maven.pkg.github.com/$githubOwner/$githubRepo",
-  ),
+  publishTo := {
+    sys.env.get("CI_API_V4_URL").filter(_.nonEmpty) match {
+      case Some(api) =>
+        Some(
+          ("gitlab-maven" at s"$api/projects/${sys.env("CI_PROJECT_ID")}/packages/maven")
+            .withAllowInsecureProtocol(true),
+        )
+      case None =>
+        Some("GitHub Package Registry" at s"https://maven.pkg.github.com/$githubOwner/$githubRepo")
+    }
+  },
   credentials ++= {
-    val user = sys.env.getOrElse("GITHUB_ACTOR", "")
-    val token = sys.env.getOrElse("GITHUB_TOKEN", "")
-    if (user.nonEmpty && token.nonEmpty)
-      Seq(Credentials("GitHub Package Registry", "maven.pkg.github.com", user, token))
-    else
-      Nil
+    val gitlab = sys.env.get("CI_JOB_TOKEN").filter(_.nonEmpty).map { token =>
+      Credentials("GitLab Packages Registry", gitlabMavenHost, "gitlab-ci-token", token)
+    }
+    val github = for {
+      user <- sys.env.get("GITHUB_ACTOR").filter(_.nonEmpty)
+      token <- sys.env.get("GITHUB_TOKEN").filter(_.nonEmpty)
+    } yield Credentials("GitHub Package Registry", "maven.pkg.github.com", user, token)
+    gitlab.toSeq ++ github.toSeq
   },
   Test / publishArtifact := true,
 )

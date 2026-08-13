@@ -1,0 +1,112 @@
+include:
+  - project: 'infra/gitlab-ci-templates'
+    file:
+      - workflow.yml
+      - validate-version.yml
+      - create-tag.yml
+      - create-snapshot-tag.yml
+
+stages:
+  - validate
+  - tag
+  - release
+
+variables:
+  VERSION_CMD: "cat VERSION"
+  SCALA_SBT_IMAGE: $CI_REGISTRY/infra/gitlab-ci-templates/scala-sbt:eclipse-temurin-21.0.8_9_1.12.9_3.3.7
+  CI_MIRROR_PROJECT: infra/gitlab-ci-templates
+  NODE_IMAGE: $CI_REGISTRY/$CI_MIRROR_PROJECT/node-bookworm-slim:22
+
+.sbt-test:
+  extends: .ci-apt-proxy
+  stage: validate
+  image: $SCALA_SBT_IMAGE
+  cache:
+    key:
+      files:
+        - build.sbt
+        - project/build.properties
+    paths:
+      - .ivy2/
+      - .cache/coursier/
+    policy: pull-push
+  before_script:
+    - export COURSIER_CACHE="$CI_PROJECT_DIR/.cache/coursier"
+    - |
+      if [ -n "${CI_MAVEN_REPO_URL:-}" ]; then
+        mkdir -p "$CI_PROJECT_DIR/.sbt"
+        printf '[repositories]\nlocal\nci-nexus: %s/, allowInsecureProtocol\n' \
+          "${CI_MAVEN_REPO_URL}" > "$CI_PROJECT_DIR/.sbt/repositories"
+        export SBT_OPTS="-Dsbt.ivy.home=$CI_PROJECT_DIR/.ivy2 -Dsbt.override.build.repos=true -Dsbt.repository.config=$CI_PROJECT_DIR/.sbt/repositories"
+        export COURSIER_REPOSITORIES="${CI_MAVEN_REPO_URL}|ivy2Local"
+      else
+        export SBT_OPTS="-Dsbt.ivy.home=$CI_PROJECT_DIR/.ivy2"
+      fi
+    - !reference [.ci-merge-main, before_script]
+  rules:
+    - if: $CI_SKIP_TEST == "true"
+      when: never
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_MERGE_MAIN == "false" && $CI_COMMIT_BRANCH && ($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "push")
+
+test:
+  extends: .sbt-test
+  timeout: 15m
+  script:
+    - ./scripts/sync-version.sh --check
+    - sbt test planExport/test planHttp/test
+
+plan-http-client-unit:
+  extends: .ci-apt-proxy
+  stage: validate
+  image: $NODE_IMAGE
+  before_script:
+    - !reference [.ci-apt-proxy, before_script]
+    - npm config set registry "${NPM_CONFIG_REGISTRY:-https://registry.npmjs.org/}"
+    - !reference [.ci-merge-main, before_script]
+  script:
+    - ./scripts/sync-version.sh --check
+    - cd plan-http-client && npm ci && npm run test:unit
+  rules:
+    - if: $CI_SKIP_TEST == "true"
+      when: never
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_MERGE_MAIN == "false" && $CI_COMMIT_BRANCH && ($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "push")
+
+publish-maven:
+  extends: .sbt-test
+  stage: release
+  script:
+    - ./scripts/sync-version.sh --check
+    - |
+      mkdir -p "$CI_PROJECT_DIR/.sbt"
+      host=$(printf '%s' "${CI_API_V4_URL}" | sed -E 's|^[a-z]+://||; s|/.*||')
+      printf 'realm=GitLab Packages Registry\nhost=%s\nuser=gitlab-ci-token\npassword=%s\n' \
+        "$host" "$CI_JOB_TOKEN" > "$CI_PROJECT_DIR/.sbt/gitlab.credentials"
+      export SBT_OPTS="${SBT_OPTS:-} -Dsbt.credentials.file=$CI_PROJECT_DIR/.sbt/gitlab.credentials"
+    - sbt publish planExport/publish planHttp/publish
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/
+
+release-npm:
+  extends: .ci-apt-proxy
+  timeout: 10m
+  stage: release
+  image: $NODE_IMAGE
+  before_script:
+    - !reference [.ci-apt-proxy, before_script]
+    - npm config set registry "${NPM_CONFIG_REGISTRY:-https://registry.npmjs.org/}"
+  script:
+    - |
+      REGISTRY="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/npm/"
+      auth_path="${REGISTRY#http://}"
+      auth_path="${auth_path#https://}"
+      cd plan-http-client
+      echo "//${auth_path}:_authToken=${CI_JOB_TOKEN}" > .npmrc
+      echo "@yarkivaev:registry=${REGISTRY}" >> .npmrc
+      ../scripts/sync-version.sh --check
+      npm publish --registry="${REGISTRY}"
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+(-SNAPSHOT-\d+)?$/
