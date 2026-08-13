@@ -1,0 +1,29 @@
+{
+  "name": "@yarkivaev/operations-hub-plan-http-client",
+  "version": "0.5.0",
+  "description": "Read-only JS client for operations-hub plan-http",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "files": [
+    "src",
+    "compat.json"
+  ],
+  "scripts": {
+    "test": "npm run test:unit",
+    "test:unit": "node --test test/unit/*.test.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yarkivaev/operations-hub.git",
+    "directory": "plan-http-client"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  }
+}

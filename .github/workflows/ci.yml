@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  scala:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: sbt
+      - uses: sbt/setup-sbt@v1
+      - name: Sync version check
+        run: ./scripts/sync-version.sh --check
+      - name: Test
+        run: sbt test planExport/test planHttp/test
+
+  npm:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: plan-http-client
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: plan-http-client/package-lock.json
+      - name: Sync version check
+        working-directory: .
+        run: ./scripts/sync-version.sh --check
+      - name: Install and test
+        run: npm ci && npm test
