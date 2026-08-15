@@ -218,4 +218,13 @@ object OperationGraphMatchers:
       override def describeMismatchSafely(item: OperationGraphScenarios.WarmRepeatView, d: Description): Unit =
         d.appendText("plan was ").appendValue(item.plan.intervals)
 
+  def occupiedSecondStartsAtFirstEnd: Matcher[OperationGraphScenarios.OccupiedDeferView] =
+    new TypeSafeMatcher[OperationGraphScenarios.OccupiedDeferView]:
+      override def matchesSafely(item: OperationGraphScenarios.OccupiedDeferView): Boolean =
+        !item.secondStart.isBefore(item.firstEnd)
+      override def describeTo(d: Description): Unit =
+        d.appendText("second graph starting at or after occupied first end")
+      override def describeMismatchSafely(item: OperationGraphScenarios.OccupiedDeferView, d: Description): Unit =
+        d.appendText("firstEnd=").appendValue(item.firstEnd).appendText(" secondStart=").appendValue(item.secondStart)
+
 end OperationGraphMatchers

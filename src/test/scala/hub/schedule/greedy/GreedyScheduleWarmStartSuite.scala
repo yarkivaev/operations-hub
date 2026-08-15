@@ -21,4 +21,8 @@ final class GreedyScheduleWarmStartSuite extends FunSuite:
   test("GreedySchedule places a fractions repeat and moves decimals after it"):
     assertThat(OperationGraphScenarios.warmStartPlacesRepeatBeforeKeptTail(), warmRepeatBeforeShiftedDecimals)
 
+  test("GreedySchedule defers a foreign graph until occupied time on the room frees"):
+    val view = OperationGraphScenarios.occupiedDefersSecondGraph()
+    assertThat(view, occupiedSecondStartsAtFirstEnd)
+
 end GreedyScheduleWarmStartSuite

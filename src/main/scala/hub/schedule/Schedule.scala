@@ -10,10 +10,12 @@ import java.time.LocalDateTime
  * operation graph, constraints, and resources.
  *
  * Pass [[prior]] to keep feasible rows from a previous plan (warm-start).
+ * Pass [[occupied]] to book foreign resource intervals without placing those ids.
  *
  * {{{
  * scheduler.plan(lessons, constraints, rooms, mondayEight)
  * scheduler.plan(lessons, constraints, rooms, mondayEight, lastPlan)
+ * scheduler.plan(lessons, constraints, rooms, mondayEight, occupied = siblingPlan)
  * }}}
  */
 trait Schedule[F[_]]:
@@ -25,6 +27,7 @@ trait Schedule[F[_]]:
    * @param resources   catalog identity (id and tags)
    * @param now         planning anchor / ready floor for roots
    * @param prior       previous plan whose feasible atomic rows are kept
+   * @param occupied    foreign occupancy that blocks resources but is not placed
    */
   def plan(
       operations: List[Operation],
@@ -32,4 +35,5 @@ trait Schedule[F[_]]:
       resources: List[Resource],
       now: LocalDateTime,
       prior: Plan = Plan.empty,
+      occupied: Plan = Plan.empty,
   ): F[Plan]

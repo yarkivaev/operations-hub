@@ -1,6 +1,6 @@
 {
   "name": "@yarkivaev/operations-hub-plan-http-client",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "Read-only JS client for operations-hub plan-http",
   "type": "module",
   "exports": {

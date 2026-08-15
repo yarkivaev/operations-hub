@@ -33,8 +33,9 @@ final class GreedySchedule[F[_]: Applicative] extends Schedule[F]:
       resources: List[Resource],
       now: LocalDateTime,
       prior: Plan = Plan.empty,
+      occupied: Plan = Plan.empty,
   ): F[Plan] =
-    Plan(GreedySchedule.place(operations, constraints, resources, now, prior)).pure[F]
+    Plan(GreedySchedule.place(operations, constraints, resources, now, prior, occupied)).pure[F]
 
 object GreedySchedule:
   /** Builds a scheduler for effect type `F` */
@@ -65,6 +66,7 @@ object GreedySchedule:
    * @param resources catalog identity used for eligibility
    * @param now ready floor for roots
    * @param prior previous plan; feasible atomic rows are kept when still valid
+   * @param occupied foreign occupancy booked on resources without placing ids
    */
   def place(
       operations: List[Operation],
@@ -72,6 +74,7 @@ object GreedySchedule:
       resources: List[Resource],
       now: LocalDateTime,
       prior: Plan = Plan.empty,
+      occupied: Plan = Plan.empty,
   ): Map[OperationId, Interval] =
     val byId = operations.map(op => op.id -> op).toMap
     val nesting = nestingOf(operations, byId)
@@ -89,6 +92,7 @@ object GreedySchedule:
     val planned = mutable.Map.empty[OperationId, Placement]
     val completed = mutable.Map.empty[OperationId, Placement]
     seedActuals(operations, occupancy, completed)
+    seedOccupied(occupied, occupancy)
     seedPrior(
       prior,
       byId,
@@ -221,6 +225,18 @@ object GreedySchedule:
     operations.foreach: op =>
       op.actual.foreach: interval =>
         completed(op.id) = Placement(interval.start, interval.end, interval.resource)
+        interval.resource.foreach: id =>
+          book(occupancy, id, interval.start, interval.end)
+
+  /**
+   * Books foreign resource intervals without placing those operation ids.
+   */
+  private def seedOccupied(
+      occupied: Plan,
+      occupancy: mutable.Map[ResourceId, List[(LocalDateTime, LocalDateTime)]],
+  ): Unit =
+    occupied.intervals.values.foreach: interval =>
+      if interval.start.isBefore(interval.end) then
         interval.resource.foreach: id =>
           book(occupancy, id, interval.start, interval.end)
 

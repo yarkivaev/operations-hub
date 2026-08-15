@@ -426,4 +426,22 @@ object OperationGraphScenarios:
     val plan = GreedySchedule.live[Id].plan(revised, Nil, List(room), mondayEight, prior)
     WarmRepeatView(decimalsStart, plan, repeat, decimals)
 
+  final case class OccupiedDeferView(firstEnd: LocalDateTime, secondStart: LocalDateTime)
+
+  def occupiedDefersSecondGraph(): OccupiedDeferView =
+    val firstId = OperationId.unsafe("7a/algebra/1")
+    val secondId = OperationId.unsafe("7b/history/1")
+    val room = resource("room-12")
+    val first =
+      List(Operation(firstId, kind("algebra", 1, ResourceRequirement.OneOf(List(room.id))), Successor.Done, None))
+    val second =
+      List(Operation(secondId, kind("history", 1, ResourceRequirement.OneOf(List(room.id))), Successor.Done, None))
+    val planA = GreedySchedule.live[Id].plan(first, Nil, List(room), mondayEight)
+    val planB =
+      GreedySchedule.live[Id].plan(second, Nil, List(room), mondayEight, prior = Plan.empty, occupied = planA)
+    OccupiedDeferView(
+      planA.at(firstId).map(_.end).getOrElse(mondayEight),
+      planB.at(secondId).map(_.start).getOrElse(mondayEight),
+    )
+
 end OperationGraphScenarios
