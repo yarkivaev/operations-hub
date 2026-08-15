@@ -227,4 +227,32 @@ object OperationGraphMatchers:
       override def describeMismatchSafely(item: OperationGraphScenarios.OccupiedDeferView, d: Description): Unit =
         d.appendText("firstEnd=").appendValue(item.firstEnd).appendText(" secondStart=").appendValue(item.secondStart)
 
+  def allOfVacationBooksBothAfterForbidden: Matcher[OperationGraphScenarios.AllOfVacationView] =
+    new TypeSafeMatcher[OperationGraphScenarios.AllOfVacationView]:
+      override def matchesSafely(item: OperationGraphScenarios.AllOfVacationView): Boolean =
+        item.plan.at(item.opId).exists: interval =>
+          !interval.start.isBefore(item.ready.plusHours(2)) &&
+            interval.resources.contains(item.lathe) &&
+            interval.resources.contains(item.anna) &&
+            item.plan.byResource(item.lathe).nonEmpty &&
+            item.plan.byResource(item.anna).nonEmpty
+      override def describeTo(d: Description): Unit =
+        d.appendText("AllOf start after person vacation with both resources booked")
+      override def describeMismatchSafely(item: OperationGraphScenarios.AllOfVacationView, d: Description): Unit =
+        d.appendText("interval was ").appendValue(item.plan.at(item.opId))
+
+  def allOfPersonIntervalsDoNotOverlap: Matcher[OperationGraphScenarios.AllOfExclusiveView] =
+    new TypeSafeMatcher[OperationGraphScenarios.AllOfExclusiveView]:
+      override def matchesSafely(item: OperationGraphScenarios.AllOfExclusiveView): Boolean =
+        (for
+          first <- item.plan.at(item.firstId)
+          second <- item.plan.at(item.secondId)
+        yield
+          first.resources.contains(item.person) && second.resources.contains(item.person) &&
+            (!first.start.isBefore(second.end) || !second.start.isBefore(first.end))).getOrElse(false)
+      override def describeTo(d: Description): Unit =
+        d.appendText("two AllOf ops not overlapping on the shared person")
+      override def describeMismatchSafely(item: OperationGraphScenarios.AllOfExclusiveView, d: Description): Unit =
+        d.appendText("first=").appendValue(item.plan.at(item.firstId)).appendText(" second=").appendValue(item.plan.at(item.secondId))
+
 end OperationGraphMatchers

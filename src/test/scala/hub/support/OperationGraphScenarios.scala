@@ -444,4 +444,56 @@ object OperationGraphScenarios:
       planB.at(secondId).map(_.start).getOrElse(mondayEight),
     )
 
+  final case class AllOfVacationView(
+      plan: Plan,
+      opId: OperationId,
+      lathe: ResourceId,
+      anna: ResourceId,
+      ready: LocalDateTime,
+  )
+
+  def allOfPersonVacationShiftsBoth(): AllOfVacationView =
+    val cut = OperationId.unsafe("цех/токарка-ёж/1")
+    val lathe = resource("станок-α")
+    val anna = resource("учитель-ё")
+    val req =
+      ResourceRequirement.AllOf(
+        List(
+          ResourceRequirement.OneOf(List(lathe.id)),
+          ResourceRequirement.OneOf(List(anna.id)),
+        )
+      )
+    val ops = List(Operation(cut, kind("токарка", 1, req), Successor.Done))
+    val vacation =
+      List(
+        Constraint.Forbidden(
+          anna.id,
+          List(HalfOpenWindow(mondayEight, mondayEight.plusHours(2))),
+        )
+      )
+    val plan = GreedySchedule.live[Id].plan(ops, vacation, List(lathe, anna), mondayEight)
+    AllOfVacationView(plan, cut, lathe.id, anna.id, mondayEight)
+
+  final case class AllOfExclusiveView(plan: Plan, firstId: OperationId, secondId: OperationId, person: ResourceId)
+
+  def allOfPersonExclusiveAcrossTwoOps(): AllOfExclusiveView =
+    val first = OperationId.unsafe("цех/резка-ξ/1")
+    val second = OperationId.unsafe("цех/резка-ξ/2")
+    val lathe = resource("станок-β")
+    val anna = resource("оператор-ψ")
+    val req =
+      ResourceRequirement.AllOf(
+        List(
+          ResourceRequirement.OneOf(List(lathe.id)),
+          ResourceRequirement.OneOf(List(anna.id)),
+        )
+      )
+    val ops =
+      List(
+        Operation(first, kind("резка", 2, req), Successor.Done),
+        Operation(second, kind("резка", 2, req), Successor.Done),
+      )
+    val plan = GreedySchedule.live[Id].plan(ops, Nil, List(lathe, anna), mondayEight)
+    AllOfExclusiveView(plan, first, second, anna.id)
+
 end OperationGraphScenarios

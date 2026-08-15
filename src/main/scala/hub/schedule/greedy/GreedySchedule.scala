@@ -46,7 +46,10 @@ object GreedySchedule:
       start: LocalDateTime,
       end: LocalDateTime,
       resource: Option[ResourceId],
-  )
+      booked: List[ResourceId] = Nil,
+  ):
+    def resources: List[ResourceId] =
+      if booked.nonEmpty then booked else resource.toList
 
   private final case class World(
       capacity: Map[ResourceId, Int],
@@ -138,7 +141,7 @@ object GreedySchedule:
         progressed = true
       else if sealReadyComposites(operations, nesting, planned, completed) then
         progressed = true
-    planned.view.mapValues(p => Interval(p.start, p.end, p.resource)).toMap
+    planned.view.mapValues(p => Interval(p.start, p.end, p.resource, p.booked)).toMap
 
   private def nestingOf(operations: List[Operation], byId: Map[OperationId, Operation]): Nesting =
     val parts = operations.collect:
@@ -224,9 +227,8 @@ object GreedySchedule:
   ): Unit =
     operations.foreach: op =>
       op.actual.foreach: interval =>
-        completed(op.id) = Placement(interval.start, interval.end, interval.resource)
-        interval.resource.foreach: id =>
-          book(occupancy, id, interval.start, interval.end)
+        completed(op.id) = Placement(interval.start, interval.end, interval.resource, interval.booked)
+        bookAll(occupancy, interval.resources, interval.start, interval.end)
 
   /**
    * Books foreign resource intervals without placing those operation ids.
@@ -237,8 +239,7 @@ object GreedySchedule:
   ): Unit =
     occupied.intervals.values.foreach: interval =>
       if interval.start.isBefore(interval.end) then
-        interval.resource.foreach: id =>
-          book(occupancy, id, interval.start, interval.end)
+        bookAll(occupancy, interval.resources, interval.start, interval.end)
 
   /**
    * Keeps feasible atomic rows from [[prior]] without shifting them.
@@ -283,8 +284,8 @@ object GreedySchedule:
             now,
           )
         then
-          planned(id) = Placement(interval.start, interval.end, interval.resource)
-          interval.resource.foreach(rid => book(occupancy, rid, interval.start, interval.end))
+          planned(id) = Placement(interval.start, interval.end, interval.resource, interval.booked)
+          bookAll(occupancy, interval.resources, interval.start, interval.end)
           progressed = true
 
   private def keepPrior(
@@ -312,12 +313,12 @@ object GreedySchedule:
             val duration = normalized(kind.normDuration)
             if interval.start.isBefore(ready) || !interval.end.equals(interval.start.plus(duration)) then false
             else
-              val eligible = OperationEligibility.candidates(op, catalog)
-              interval.resource match
-                case None =>
-                  eligible.isEmpty
-                case Some(rid) =>
-                  eligible.exists(_.id == rid) && slotHolds(rid, interval.start, duration, occupancy, world)
+              val combos = OperationEligibility.groups(op, catalog).map(_.map(_.id).toSet)
+              val booked = interval.resources.toSet
+              if booked.isEmpty then combos.isEmpty
+              else
+                combos.exists(_ == booked) &&
+                interval.resources.forall(rid => slotHolds(rid, interval.start, duration, occupancy, world))
         case _ => false
 
   private def slotHolds(
@@ -442,7 +443,7 @@ object GreedySchedule:
             val ready = readyFloor(id, preds, nesting, planned, completed, now)
             val placed = placeOp(op, ready, catalog, occupancy, world)
             planned(id) = placed
-            placed.resource.foreach(rid => book(occupancy, rid, placed.start, placed.end))
+            bookAll(occupancy, placed.resources, placed.start, placed.end)
           case Body.Composite(_) => ()
 
   private def placeSameInterval(
@@ -474,12 +475,12 @@ object GreedySchedule:
           .reduceOption(_ intersect _)
           .getOrElse(Set.empty)
           .toList
-          .map(catalog.get)
-          .sortBy(_.id.value)
-      val (resource, start) = pickSlot(candidates, ready, duration, occupancy, world)
+          .map(id => List(catalog.get(id)))
+          .sortBy(_.head.id.value)
+      val (ids, start) = pickSlot(candidates, ready, duration, occupancy, world)
       val end = start.plus(duration)
-      val placement = Placement(start, end, resource)
-      resource.foreach(rid => book(occupancy, rid, start, end))
+      val placement = Placement(start, end, ids.headOption, ids)
+      bookAll(occupancy, ids, start, end)
       ops.foreach(id => planned(id) = placement)
 
   private def placeOp(
@@ -492,36 +493,64 @@ object GreedySchedule:
     op.body match
       case Body.Atom(kind) =>
         val duration = normalized(kind.normDuration)
-        val candidates = OperationEligibility.candidates(op, catalog)
-        val (resource, start) = pickSlot(candidates, ready, duration, occupancy, world)
-        Placement(start, start.plus(duration), resource)
+        val combos = OperationEligibility.groups(op, catalog)
+        val (ids, start) = pickSlot(combos, ready, duration, occupancy, world)
+        Placement(start, start.plus(duration), ids.headOption, ids)
       case Body.Composite(_) =>
         Placement(ready, ready, None)
 
   private def pickSlot(
-      candidates: List[Resource],
+      combos: List[List[Resource]],
       ready: LocalDateTime,
       duration: Duration,
       occupancy: mutable.Map[ResourceId, List[(LocalDateTime, LocalDateTime)]],
       world: World,
-  ): (Option[ResourceId], LocalDateTime) =
-    if candidates.isEmpty then (None, ready)
+  ): (List[ResourceId], LocalDateTime) =
+    if combos.isEmpty then (Nil, ready)
     else
-      val chosen =
-        candidates
-          .map: resource =>
-            val start =
-              ResourceSlot.start(
-                resource.id,
-                ready,
-                duration,
-                occupancy.getOrElse(resource.id, Nil),
-                world.forbidden.getOrElse(resource.id, Nil),
-                world.capacity.getOrElse(resource.id, 1),
-              )
-            (resource.id, start)
-          .minBy(_._2)
-      (Some(chosen._1), chosen._2)
+      val ranked =
+        combos.map: combo =>
+          val ids = combo.map(_.id)
+          (ids, multiStart(ids, ready, duration, occupancy, world))
+      val chosen = ranked.minBy((ids, start) => (start, ids.map(_.value).mkString("|")))
+      chosen
+
+  private def multiStart(
+      ids: List[ResourceId],
+      ready: LocalDateTime,
+      duration: Duration,
+      occupancy: mutable.Map[ResourceId, List[(LocalDateTime, LocalDateTime)]],
+      world: World,
+  ): LocalDateTime =
+    if ids.isEmpty then ready
+    else
+      var candidate = ready
+      var guard = 0
+      while guard < 1000 do
+        guard += 1
+        val starts =
+          ids.map: id =>
+            ResourceSlot.start(
+              id,
+              candidate,
+              duration,
+              occupancy.getOrElse(id, Nil),
+              world.forbidden.getOrElse(id, Nil),
+              world.capacity.getOrElse(id, 1),
+            )
+        val sync = starts.max
+        if starts.forall(_ == sync) then return sync
+        if !sync.isAfter(candidate) then return sync
+        candidate = sync
+      candidate
+
+  private def bookAll(
+      occupancy: mutable.Map[ResourceId, List[(LocalDateTime, LocalDateTime)]],
+      ids: List[ResourceId],
+      start: LocalDateTime,
+      end: LocalDateTime,
+  ): Unit =
+    ids.foreach(id => book(occupancy, id, start, end))
 
   private def book(
       occupancy: mutable.Map[ResourceId, List[(LocalDateTime, LocalDateTime)]],

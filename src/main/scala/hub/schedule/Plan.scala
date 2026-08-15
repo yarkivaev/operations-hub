@@ -34,7 +34,7 @@ object Plan:
       def intervals: Map[OperationId, Interval] = rows
       def byResource(resource: ResourceId): List[(OperationId, Interval)] =
         rows.toList
-          .filter((_, interval) => interval.resource.contains(resource))
+          .filter((_, interval) => interval.resources.contains(resource))
           .sortBy((id, interval) => (interval.start, id.text))
 
   /** Empty plan with no assignments */
